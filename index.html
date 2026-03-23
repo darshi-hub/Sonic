@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velocity Engine</title>
+<style>
+body {
+  margin:0;
+  overflow:hidden;
+  background:#0a0f1f;
+}
+canvas {
+  width:100vw;
+  height:100vh;
+  display:block;
+  image-rendering:pixelated;
+}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+}
+window.onresize = resize;
+resize();
+
+
+// ================= INPUT =================
+const input = {};
+addEventListener("keydown", e => input[e.code]=true);
+addEventListener("keyup", e => input[e.code]=false);
+
+
+// ================= CONSTANTS =================
+const TILE = 32;
+const GRAVITY = 1500;
+const ACCEL = 1200;
+const FRICTION = 0.85;
+const MAX_SPEED = 500;
+const JUMP = 550;
+
+
+// ================= LEVEL =================
+// 0 = empty, 1 = ground, 2 = slope up, 3 = slope down
+const level = [
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"111111111111111111111111111111111111",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000",
+"000000000000000000000000000000000000"
+];
+
+
+// ================= PLAYER =================
+const player = {
+  x:100,
+  y:100,
+  w:20,
+  h:28,
+  vx:0,
+  vy:0,
+  onGround:false,
+  angle:0,
+  rolling:false
+};
+
+
+// ================= HELPERS =================
+function getTile(x,y){
+  const tx = Math.floor(x/TILE);
+  const ty = Math.floor(y/TILE);
+  if(level[ty] && level[ty][tx]) return parseInt(level[ty][tx]);
+  return 0;
+}
+
+
+// slope collision
+function getGroundY(x){
+  const tx = Math.floor(x/TILE);
+  const ty = Math.floor(player.y/TILE);
+
+  const tile = getTile(x, (ty+1)*TILE);
+
+  if(tile === 1){
+    return (ty+1)*TILE;
+  }
+
+  if(tile === 2){ // slope up
+    const localX = x % TILE;
+    return (ty+1)*TILE - localX;
+  }
+
+  if(tile === 3){ // slope down
+    const localX = x % TILE;
+    return ty*TILE + localX;
+  }
+
+  return null;
+}
+
+
+// ================= UPDATE =================
+function update(dt){
+
+  // input
+  if(input["ArrowRight"]) player.vx += ACCEL * dt;
+  if(input["ArrowLeft"]) player.vx -= ACCEL * dt;
+
+  player.vx *= FRICTION;
+  player.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, player.vx));
+
+  if(input["Space"] && player.onGround){
+    player.vy = -JUMP;
+    player.onGround = false;
+  }
+
+  // gravity
+  player.vy += GRAVITY * dt;
+
+  // move
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+
+  // ground check
+  const groundY = getGroundY(player.x + player.w/2);
+
+  if(groundY !== null && player.y + player.h >= groundY){
+    player.y = groundY - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  } else {
+    player.onGround = false;
+  }
+
+  // rolling
+  player.rolling = player.onGround && Math.abs(player.vx) > 200;
+}
+
+
+// ================= CAMERA =================
+let camX = 0;
+
+function updateCamera(){
+  camX += (player.x - camX - canvas.width/2) * 0.1;
+}
+
+
+// ================= DRAW =================
+function draw(){
+
+  ctx.fillStyle = "#6ecbff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.save();
+  ctx.translate(-camX,0);
+
+  // tiles
+  for(let y=0;y<level.length;y++){
+    for(let x=0;x<level[y].length;x++){
+      const tile = level[y][x];
+      if(tile == 1){
+        ctx.fillStyle = "#3aa655";
+        ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+      }
+      if(tile == 2){
+        ctx.fillStyle = "#3aa655";
+        ctx.beginPath();
+        ctx.moveTo(x*TILE,y*TILE+TILE);
+        ctx.lineTo(x*TILE+TILE,y*TILE+TILE);
+        ctx.lineTo(x*TILE+TILE,y*TILE);
+        ctx.fill();
+      }
+      if(tile == 3){
+        ctx.fillStyle = "#3aa655";
+        ctx.beginPath();
+        ctx.moveTo(x*TILE,y*TILE);
+        ctx.lineTo(x*TILE,y*TILE+TILE);
+        ctx.lineTo(x*TILE+TILE,y*TILE+TILE);
+        ctx.fill();
+      }
+    }
+  }
+
+  // player
+  ctx.fillStyle = player.rolling ? "yellow" : "blue";
+  ctx.fillRect(player.x,player.y,player.w,player.h);
+
+  ctx.restore();
+}
+
+
+// ================= LOOP =================
+let last = 0;
+
+function loop(t){
+  const dt = (t - last)/1000;
+  last = t;
+
+  update(dt);
+  updateCamera();
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+loop(0);
+
+</script>
+</body>
+</html>
