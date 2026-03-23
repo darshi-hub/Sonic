@@ -3,19 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Velocity Engine</title>
+<title>Velocity Engine Pro</title>
 <style>
-body {
-  margin:0;
-  overflow:hidden;
-  background:#0a0f1f;
-}
-canvas {
-  width:100vw;
-  height:100vh;
-  display:block;
-  image-rendering:pixelated;
-}
+body { margin:0; overflow:hidden; background:#0a0f1f; }
+canvas { width:100vw; height:100vh; display:block; image-rendering:pixelated; }
 </style>
 </head>
 <body>
@@ -32,24 +23,21 @@ function resize(){
 window.onresize = resize;
 resize();
 
-
 // ================= INPUT =================
 const input = {};
 addEventListener("keydown", e => input[e.code]=true);
 addEventListener("keyup", e => input[e.code]=false);
 
-
 // ================= CONSTANTS =================
 const TILE = 32;
-const GRAVITY = 1500;
-const ACCEL = 1200;
-const FRICTION = 0.85;
-const MAX_SPEED = 500;
-const JUMP = 550;
-
+const GRAVITY = 1600;
+const ACCEL = 1400;
+const MAX_SPEED = 600;
+const FRICTION = 0.82;
+const JUMP = 600;
 
 // ================= LEVEL =================
-// 0 = empty, 1 = ground, 2 = slope up, 3 = slope down
+// 0 empty, 1 flat, 2 slope up, 3 slope down, 4 boost
 const level = [
 "000000000000000000000000000000000000",
 "000000000000000000000000000000000000",
@@ -70,78 +58,78 @@ const level = [
 "000000000000000000000000000000000000",
 "000000000000000000000000000000000000",
 "000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
-"000000000000000000000000000000000000",
 "000000000000000000000000000000000000"
 ];
 
-
 // ================= PLAYER =================
 const player = {
-  x:100,
-  y:100,
-  w:20,
-  h:28,
-  vx:0,
-  vy:0,
+  x:100, y:100,
+  w:20, h:28,
+  vx:0, vy:0,
   onGround:false,
   angle:0,
   rolling:false
 };
 
-
 // ================= HELPERS =================
-function getTile(x,y){
-  const tx = Math.floor(x/TILE);
-  const ty = Math.floor(y/TILE);
-  if(level[ty] && level[ty][tx]) return parseInt(level[ty][tx]);
+function getTile(tx,ty){
+  if(level[ty] && level[ty][tx]) return +level[ty][tx];
   return 0;
 }
 
+function getTileAtPixel(x,y){
+  return getTile(Math.floor(x/TILE), Math.floor(y/TILE));
+}
 
-// slope collision
-function getGroundY(x){
-  const tx = Math.floor(x/TILE);
-  const ty = Math.floor(player.y/TILE);
+// returns ground Y + angle
+function getGroundInfo(px){
+  const tx = Math.floor(px/TILE);
+  const ty = Math.floor(player.y/TILE)+1;
 
-  const tile = getTile(x, (ty+1)*TILE);
+  const tile = getTile(tx,ty);
+  const localX = px % TILE;
 
   if(tile === 1){
-    return (ty+1)*TILE;
+    return { y: ty*TILE, angle:0 };
   }
 
-  if(tile === 2){ // slope up
-    const localX = x % TILE;
-    return (ty+1)*TILE - localX;
+  if(tile === 2){
+    return { y: ty*TILE - localX, angle:-Math.PI/4 };
   }
 
-  if(tile === 3){ // slope down
-    const localX = x % TILE;
-    return ty*TILE + localX;
+  if(tile === 3){
+    return { y: (ty-1)*TILE + localX, angle:Math.PI/4 };
   }
 
   return null;
 }
 
-
 // ================= UPDATE =================
 function update(dt){
 
-  // input
-  if(input["ArrowRight"]) player.vx += ACCEL * dt;
-  if(input["ArrowLeft"]) player.vx -= ACCEL * dt;
+  // movement input
+  let move = 0;
+  if(input["ArrowRight"]) move += 1;
+  if(input["ArrowLeft"]) move -= 1;
 
-  player.vx *= FRICTION;
+  // slope physics acceleration
+  if(player.onGround){
+    player.vx += move * ACCEL * dt;
+
+    // slope acceleration
+    player.vx += Math.sin(player.angle) * GRAVITY * dt * 0.6;
+  } else {
+    player.vx += move * ACCEL * 0.5 * dt;
+  }
+
+  // friction
+  if(player.onGround && move === 0){
+    player.vx *= FRICTION;
+  }
+
   player.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, player.vx));
 
+  // jump
   if(input["Space"] && player.onGround){
     player.vy = -JUMP;
     player.onGround = false;
@@ -150,33 +138,44 @@ function update(dt){
   // gravity
   player.vy += GRAVITY * dt;
 
-  // move
+  // move X
   player.x += player.vx * dt;
-  player.y += player.vy * dt;
 
-  // ground check
-  const groundY = getGroundY(player.x + player.w/2);
+  // move Y with substeps (no clipping)
+  let steps = Math.ceil(Math.abs(player.vy*dt)/8);
+  for(let i=0;i<steps;i++){
+    player.y += (player.vy*dt)/steps;
 
-  if(groundY !== null && player.y + player.h >= groundY){
-    player.y = groundY - player.h;
-    player.vy = 0;
-    player.onGround = true;
-  } else {
-    player.onGround = false;
+    const info = getGroundInfo(player.x + player.w/2);
+
+    if(info && player.y + player.h >= info.y){
+      player.y = info.y - player.h;
+      player.vy = 0;
+      player.onGround = true;
+      player.angle = info.angle;
+      break;
+    } else {
+      player.onGround = false;
+    }
   }
 
   // rolling
-  player.rolling = player.onGround && Math.abs(player.vx) > 200;
-}
+  player.rolling = player.onGround && Math.abs(player.vx) > 250;
 
+  // BOOST TILE
+  const tileUnder = getTileAtPixel(player.x + player.w/2, player.y + player.h + 2);
+  if(tileUnder === 4){
+    player.vx += 800 * dt;
+  }
+}
 
 // ================= CAMERA =================
 let camX = 0;
 
 function updateCamera(){
-  camX += (player.x - camX - canvas.width/2) * 0.1;
+  const target = player.x - canvas.width/2 + player.vx*0.2;
+  camX += (target - camX) * 0.1;
 }
-
 
 // ================= DRAW =================
 function draw(){
@@ -187,46 +186,58 @@ function draw(){
   ctx.save();
   ctx.translate(-camX,0);
 
-  // tiles
   for(let y=0;y<level.length;y++){
     for(let x=0;x<level[y].length;x++){
-      const tile = level[y][x];
-      if(tile == 1){
-        ctx.fillStyle = "#3aa655";
+      const tile = +level[y][x];
+
+      if(tile===1){
+        ctx.fillStyle="#3aa655";
         ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
       }
-      if(tile == 2){
-        ctx.fillStyle = "#3aa655";
+
+      if(tile===2){
+        ctx.fillStyle="#3aa655";
         ctx.beginPath();
         ctx.moveTo(x*TILE,y*TILE+TILE);
         ctx.lineTo(x*TILE+TILE,y*TILE+TILE);
         ctx.lineTo(x*TILE+TILE,y*TILE);
         ctx.fill();
       }
-      if(tile == 3){
-        ctx.fillStyle = "#3aa655";
+
+      if(tile===3){
+        ctx.fillStyle="#3aa655";
         ctx.beginPath();
         ctx.moveTo(x*TILE,y*TILE);
         ctx.lineTo(x*TILE,y*TILE+TILE);
         ctx.lineTo(x*TILE+TILE,y*TILE+TILE);
         ctx.fill();
       }
+
+      if(tile===4){
+        ctx.fillStyle="yellow";
+        ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+      }
     }
   }
 
   // player
+  ctx.save();
+  ctx.translate(player.x,player.y);
+  ctx.rotate(player.angle);
+
   ctx.fillStyle = player.rolling ? "yellow" : "blue";
-  ctx.fillRect(player.x,player.y,player.w,player.h);
+  ctx.fillRect(0,0,player.w,player.h);
+
+  ctx.restore();
 
   ctx.restore();
 }
 
-
 // ================= LOOP =================
-let last = 0;
+let last=0;
 
 function loop(t){
-  const dt = (t - last)/1000;
+  const dt = Math.min(0.025,(t-last)/1000);
   last = t;
 
   update(dt);
@@ -237,7 +248,6 @@ function loop(t){
 }
 
 loop(0);
-
 </script>
 </body>
 </html>
